@@ -8,82 +8,82 @@ import datetime
 from dateutil.relativedelta import relativedelta
 from deep_translator import GoogleTranslator
 import plotly.express as px
-import plotly.graph_objects as go
+import streamlit_shadcn_ui as ui
+from streamlit_option_menu import option_menu
 
 # ==========================================
-# 0. デザイン設定 (ピヨログ風・Warm Style)
+# 0. デザイン & CSS設定 (Modern Mobile Style)
 # ==========================================
 st.set_page_config(page_title="Baby Log", layout="centered", initial_sidebar_state="collapsed")
 
 def local_css():
     st.markdown("""
     <style>
-        /* 全体のフォントと背景 */
+        /* アプリ全体の背景とフォント */
         .stApp {
-            font-family: "Hiragino Maru Gothic Pro", "Yu Gothic", sans-serif;
-            background-color: #FFF8E1; /* 優しいクリーム色 */
+            background-color: #F8F9FA; /* 明るいグレーホワイト */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
         
-        /* 入力フォームのカード化 */
-        div[data-testid="stForm"] {
-            background-color: #FFFFFF;
-            padding: 20px;
-            border-radius: 20px;
-            box-shadow: 0 4px 15px rgba(255, 160, 0, 0.1);
-            border: 2px solid #FFF3E0;
+        /* Streamlitの余計なヘッダー・余白を消す */
+        header {visibility: hidden;}
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 5rem !important;
         }
 
-        /* タイムラインのデザイン */
-        .timeline-container {
-            position: relative;
-            padding-left: 30px;
-            border-left: 3px solid #FFD54F; /* 縦線 */
+        /* タイムラインのスタイル */
+        .timeline-box {
+            border-left: 2px solid #E2E8F0;
+            padding-left: 20px;
             margin-left: 10px;
-            margin-top: 20px;
-        }
-        
-        .timeline-dot {
-            position: absolute;
-            left: -39px;
-            top: 20px;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background-color: #FFB300;
-            border: 3px solid #FFF;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .entry-card {
-            background-color: #FFFFFF;
-            padding: 15px 20px;
-            border-radius: 15px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-            margin-bottom: 20px;
+            padding-bottom: 20px;
             position: relative;
         }
-
-        .time-label {
-            font-size: 0.8em;
-            color: #8D6E63;
-            font-weight: bold;
-            margin-bottom: 5px;
+        .timeline-icon {
+            position: absolute;
+            left: -11px;
+            top: 0;
+            background: white;
+            border: 2px solid #E2E8F0;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            text-align: center;
+            font-size: 12px;
+            line-height: 18px;
+        }
+        
+        /* フォームとカードのスタイル */
+        .custom-card {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            margin-bottom: 16px;
         }
 
-        /* ボタンのデザイン */
-        div.stButton > button {
-            background-color: #FFB74D;
-            color: white;
-            border-radius: 30px;
-            padding: 10px 30px;
+        /* 数値入力欄をシンプルに */
+        div[data-baseweb="input"] {
+            background-color: #F1F5F9;
+            border-radius: 10px;
             border: none;
-            font-weight: bold;
-            box-shadow: 0 4px 0 #F57C00; /* 立体的なボタン */
-            transition: all 0.1s;
         }
-        div.stButton > button:active {
-            transform: translateY(4px);
-            box-shadow: none;
+        
+        /* ボタンをモダンに */
+        div.stButton > button {
+            width: 100%;
+            background-image: linear-gradient(to right, #3B82F6, #2563EB);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
+            box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+        }
+        div.stButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px rgba(37, 99, 235, 0.3);
         }
     </style>
     """, unsafe_allow_html=True)
@@ -91,12 +91,9 @@ def local_css():
 local_css()
 
 # ==========================================
-# 1. システム設定・接続
+# 1. バックエンド関数
 # ==========================================
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 def get_creds():
     return Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
@@ -105,19 +102,12 @@ def get_sheet():
     creds = get_creds()
     client = gspread.authorize(creds)
     sheet = client.open("すくすくログ").sheet1
-    
-    # --- 自動メンテナンス機能 ---
-    # カテゴリ列(G列)などがなければ自動で追加する
+    # 列自動追加
     try:
-        header = sheet.row_values(1)
-        # G列(7番目)がなければ追加
-        if len(header) < 7:
-            sheet.update_cell(1, 7, "カテゴリ") # G1
-        if len(header) < 8:
-            sheet.update_cell(1, 8, "タイムスタンプ") # H1
-    except:
-        pass
-        
+        if len(sheet.row_values(1)) < 8:
+            sheet.update_cell(1, 7, "カテゴリ")
+            sheet.update_cell(1, 8, "タイムスタンプ")
+    except: pass
     return sheet
 
 def upload_image_to_drive(image_file, filename):
@@ -126,253 +116,209 @@ def upload_image_to_drive(image_file, filename):
         service = build('drive', 'v3', credentials=creds)
         file_metadata = {'name': filename}
         media = MediaIoBaseUpload(image_file, mimetype='image/jpeg')
-        file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, webContentLink'
-        ).execute()
+        file = service.files().create(body=file_metadata, media_body=media, fields='id, webContentLink').execute()
         return file.get('webContentLink')
-    except Exception as e:
-        return ""
+    except: return ""
 
 def translate_text(text, target_lang):
-    if not text or text == "": return ""
+    if not text: return ""
     try:
         target = 'en' if target_lang == 'en' else 'ja'
         return GoogleTranslator(source='auto', target=target).translate(text)
-    except:
-        return text
+    except: return text
 
 # ==========================================
-# 2. 定数・辞書
+# 2. 定数 & 辞書
 # ==========================================
-# カテゴリ別アイコン定義
-ICONS = {
-    "Growth": "📏", # 成長記録
-    "Milk": "🍼",   # ミルク・食事
-    "Diaper": "💩", # トイレ
-    "Sleep": "💤",  # ねんね
-    "Bath": "🛁",   # お風呂
-    "Event": "🎉",  # イベント
-    "Health": "🏥", # 病院・体調
-    "Other": "📝"   # その他
+ICONS = {"Growth": "📏", "Milk": "🍼", "Diaper": "💩", "Sleep": "💤", "Bath": "🛁", "Event": "🎉", "Health": "🏥", "Other": "📝"}
+
+KNOWLEDGE = {
+    'jp': {0: "睡眠リズム未完成。+25-30g/日。", 1: "手足活発。外気浴OK。", 2: "表情が出る。クーイング。", 3: "首すわり。ハンドガード。", 4: "首しっかり。昼夜区別。", 5: "離乳食開始目安。", 6: "お座り安定。免疫切れ注意。", 'default': "順調な成長です。"},
+    'en': {0: "Irregular sleep. +25-30g/day.", 1: "Active limbs. Air baths OK.", 2: "Expressions, cooing.", 3: "Neck control. Hand regard.", 4: "Steady neck. Circadian rhythm.", 5: "Start solids.", 6: "Stable sitting. Watch colds.", 'default': "Growing well."}
 }
 
-KNOWLEDGE_BASE = {
-    'jp': {'default': "順調に成長しています。", 0: "睡眠リズム未完成。1日25-30g増目安。", 1: "手足活発。外気浴OK。", 2: "表情が出る。クーイング。", 3: "首すわり。ハンドガード。", 4: "首しっかり。昼夜区別。", 5: "離乳食開始目安。", 6: "お座り安定。免疫切れ注意。"},
-    'en': {'default': "Growing well.", 0: "Irregular sleep. Gain 25-30g/day.", 1: "Active limbs. Air baths OK.", 2: "Expressions, cooing.", 3: "Neck control. Hand regard.", 4: "Steady neck. Circadian rhythm.", 5: "Start solids.", 6: "Stable sitting. Watch colds."}
-}
-
-UI_TEXT = {
-    'jp': {
-        'title': 'Baby Log',
-        'tab_record': '✏️ 記録',
-        'tab_history': '📅 タイムライン',
-        'date': '日付',
-        'time': '時間',
-        'category': 'アイコン選択',
-        'height': '身長 (cm)',
-        'weight': '体重 (kg)',
-        'diary': 'メモ・日記',
-        'photo': '写真を追加',
-        'submit': '記録する',
-        'success': '保存しました✨',
-        'birthday_label': '誕生日',
-        'save_bd': '更新',
-        'no_data': 'データがありません',
-        'cats': {"Growth": "成長記録", "Milk": "食事・授乳", "Diaper": "トイレ", "Sleep": "ねんね", "Bath": "お風呂", "Event": "できた！", "Health": "病院・薬", "Other": "その他"}
-    },
-    'en': {
-        'title': 'Baby Log',
-        'tab_record': '✏️ Record',
-        'tab_history': '📅 Timeline',
-        'date': 'Date',
-        'time': 'Time',
-        'category': 'Category',
-        'height': 'Height (cm)',
-        'weight': 'Weight (kg)',
-        'diary': 'Note',
-        'photo': 'Add Photo',
-        'submit': 'Save Entry',
-        'success': 'Saved! ✨',
-        'birthday_label': 'Birthday',
-        'save_bd': 'Update',
-        'no_data': 'No data yet',
-        'cats': {"Growth": "Growth", "Milk": "Meal/Milk", "Diaper": "Diaper", "Sleep": "Sleep", "Bath": "Bath", "Event": "Milestone", "Health": "Health", "Other": "Other"}
-    }
+TEXT = {
+    'jp': {'nav': ["記録", "分析", "設定"], 'cat': "カテゴリ", 'date': "日付", 'time': "時間", 'memo': "メモ", 'save': "保存", 'success': "保存完了", 'bd': "誕生日", 'update': "更新", 'no_data': "データなし", 'cats': {"Growth":"成長","Milk":"食事","Diaper":"トイレ","Sleep":"ねんね","Bath":"お風呂","Event":"できた","Health":"病院","Other":"他"}},
+    'en': {'nav': ["Record", "Analysis", "Settings"], 'cat': "Category", 'date': "Date", 'time': "Time", 'memo': "Memo", 'save': "Save", 'success': "Saved", 'bd': "Birthday", 'update': "Update", 'no_data': "No Data", 'cats': {"Growth":"Growth","Milk":"Meal","Diaper":"Diaper","Sleep":"Sleep","Bath":"Bath","Event":"Milestone","Health":"Health","Other":"Other"}}
 }
 
 # ==========================================
 # 3. アプリケーション本体
 # ==========================================
-st.sidebar.markdown("## ⚙️ Settings")
-lang_mode = st.sidebar.selectbox("Language", ["日本語", "English"])
-lang_code = 'jp' if lang_mode == "日本語" else 'en'
-text = UI_TEXT[lang_code]
+# 言語設定（セッション管理）
+if 'lang' not in st.session_state: st.session_state['lang'] = 'jp'
+lang_code = st.session_state['lang']
+t = TEXT[lang_code]
 
+# データ取得
 sheet = get_sheet()
 try:
-    saved_bd_str = sheet.acell('G1').value
-    default_date = datetime.datetime.strptime(saved_bd_str, '%Y-%m-%d').date() if saved_bd_str else datetime.date(2024, 1, 1)
+    saved_bd = sheet.acell('G1').value
+    birthday = datetime.datetime.strptime(saved_bd, '%Y-%m-%d').date() if saved_bd else datetime.date(2024, 1, 1)
 except:
-    default_date = datetime.date(2024, 1, 1)
+    birthday = datetime.date(2024, 1, 1)
 
-birthday = st.sidebar.date_input(text['birthday_label'], default_date)
-if st.sidebar.button(text['save_bd']):
-    sheet.update(range_name='G1', values=[[str(birthday)]])
-    st.sidebar.success("Updated!")
-    st.rerun()
+# 月齢計算
+today = datetime.date.today()
+age = relativedelta(today, birthday)
+months_old = age.years * 12 + age.months
 
-# ヘッダーエリア（赤ちゃんの月齢表示）
-age = relativedelta(datetime.date.today(), birthday)
-st.markdown(f"""
-<div style="text-align:center; padding: 20px; background-color: #FFF3E0; border-radius: 15px; margin-bottom: 20px;">
-    <h2 style="color:#F57C00; margin:0;">👶 {age.years * 12 + age.months}m {age.days}d</h2>
-    <p style="color:#8D6E63; margin:0;">Today is Day {(datetime.date.today() - birthday).days}</p>
-</div>
-""", unsafe_allow_html=True)
+# --- ヘッダー（概要カード） ---
+# モダンなUIライブラリを使用
+cols = st.columns(3)
+with cols[0]:
+    ui.metric_card(title="Age", content=f"{months_old}m", description=f"{age.days}d", key="card1")
+with cols[1]:
+    ui.metric_card(title="Days", content=f"{(today - birthday).days}", description="Total", key="card2")
+with cols[2]:
+    # 最新体重を取得して表示
+    try:
+        all_data = sheet.get_all_records()
+        last_weight = next((r['体重'] for r in reversed(all_data) if r['体重']), "-")
+        ui.metric_card(title="Weight", content=f"{last_weight}", description="kg", key="card3")
+    except:
+        ui.metric_card(title="Weight", content="-", description="kg", key="card3")
 
-tab1, tab2 = st.tabs([text['tab_record'], text['tab_history']])
+st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# --- タブ1: 記録（ピヨログ風アイコン選択） ---
-with tab1:
+# --- ナビゲーションメニュー (モダンなピル型) ---
+selected = option_menu(
+    menu_title=None,
+    options=t['nav'],
+    icons=["pencil-fill", "graph-up-arrow", "gear-fill"],
+    default_index=0,
+    orientation="horizontal",
+    styles={
+        "container": {"padding": "0!important", "background-color": "#ffffff", "border-radius": "15px"},
+        "icon": {"color": "#64748b", "font-size": "14px"}, 
+        "nav-link": {"font-size": "14px", "text-align": "center", "margin": "5px", "--hover-color": "#f1f5f9"},
+        "nav-link-selected": {"background-color": "#2563EB", "font-weight": "600"},
+    }
+)
+
+# === ページ1: 記録 ===
+if selected == t['nav'][0]: # Record
+    st.markdown(f"<div class='custom-card'>", unsafe_allow_html=True)
+    
+    # カテゴリ選択（アイコンボタン風）
+    st.caption(t['cat'])
+    cat_keys = list(t['cats'].keys())
+    # 4列x2行でアイコンを並べる
+    c1, c2, c3, c4 = st.columns(4)
+    cols_list = [c1, c2, c3, c4]
+    
+    # セッションステートで選択カテゴリを保持
+    if 'selected_cat' not in st.session_state: st.session_state['selected_cat'] = "Growth"
+    
+    for i, key in enumerate(cat_keys):
+        with cols_list[i % 4]:
+            label = f"{ICONS[key]}\n{t['cats'][key]}"
+            if st.button(label, key=f"btn_{key}", use_container_width=True):
+                st.session_state['selected_cat'] = key
+    
+    curr_cat = st.session_state['selected_cat']
+    st.markdown(f"<div style='text-align:center; margin:15px 0; font-weight:bold; color:#2563EB;'>Selected: {ICONS[curr_cat]} {t['cats'][curr_cat]}</div>", unsafe_allow_html=True)
+
     with st.form("entry_form", clear_on_submit=True):
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            d_val = st.date_input(text['date'], datetime.date.today())
-        with col2:
-            t_val = st.time_input(text['time'], datetime.datetime.now())
-            
-        # カテゴリ選択（ラジオボタンを横並び風に）
-        st.markdown(f"**{text['category']}**")
-        cat_options = list(text['cats'].keys())
-        cat_labels = [f"{ICONS[c]} {text['cats'][c]}" for c in cat_options]
-        selected_cat_idx = st.radio("Category", range(len(cat_options)), format_func=lambda x: cat_labels[x], horizontal=True, label_visibility="collapsed")
-        selected_cat_key = cat_options[selected_cat_idx]
+        col1, col2 = st.columns(2)
+        with col1: d_val = st.date_input(t['date'], datetime.date.today())
+        with col2: t_val = st.time_input(t['time'], datetime.datetime.now())
 
-        st.markdown("---")
-        
-        # 成長記録を選んだときだけ身長・体重を表示
         h_val, w_val = 0.0, 0.0
-        if selected_cat_key == "Growth":
+        if curr_cat == "Growth":
             c1, c2 = st.columns(2)
-            with c1: h_val = st.number_input(text['height'], min_value=0.0, format="%.1f")
-            with c2: w_val = st.number_input(text['weight'], min_value=0.0, format="%.3f")
-        
-        note_val = st.text_area(text['diary'], height=80)
-        img_file = st.file_uploader(text['photo'], type=['jpg', 'jpeg', 'png'])
-        
-        submitted = st.form_submit_button(text['submit'], use_container_width=True)
-        
-        if submitted:
+            with c1: h_val = st.number_input("Height (cm)", min_value=0.0, format="%.1f")
+            with c2: w_val = st.number_input("Weight (kg)", min_value=0.0, format="%.3f")
+
+        note_val = st.text_area(t['memo'], height=80)
+        img_file = st.file_uploader("Photo", type=['jpg', 'png'])
+
+        if st.form_submit_button(t['save']):
             try:
-                # AIコメント生成（Growthの場合のみ詳細分析）
-                full_comment = ""
-                if selected_cat_key == "Growth" and w_val > 0:
-                    months = age.years * 12 + age.months
-                    knowledge = KNOWLEDGE_BASE[lang_code].get(months, KNOWLEDGE_BASE[lang_code]['default'])
-                    full_comment = knowledge
+                # AIコメント
+                ai_msg = ""
+                if curr_cat == "Growth" and w_val > 0:
+                    ai_msg = KNOWLEDGE[lang_code].get(months_old, KNOWLEDGE[lang_code]['default'])
                 
-                # 画像処理
-                img_link = ""
+                # 画像
+                link = ""
                 if img_file:
                     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    img_link = upload_image_to_drive(img_file, f"baby_{ts}.jpg")
+                    link = upload_image_to_drive(img_file, f"baby_{ts}.jpg")
 
-                # 保存 (G列=カテゴリ, H列=タイムスタンプ を追加)
-                # 列順: 日付, 身長, 体重, 日記, AIコメント, 画像, カテゴリ, 時間
-                sheet.append_row([str(d_val), h_val if h_val>0 else "", w_val if w_val>0 else "", note_val, full_comment, img_link, selected_cat_key, str(t_val)])
-                st.success(text['success'])
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-# --- タブ2: タイムライン＆グラフ ---
-with tab2:
-    if st.button("🔄 Refresh"): st.rerun()
+                sheet.append_row([str(d_val), h_val if h_val>0 else "", w_val if w_val>0 else "", note_val, ai_msg, link, curr_cat, str(t_val)])
+                st.success(t['success'])
+            except Exception as e: st.error(str(e))
     
-    data = sheet.get_all_records()
-    df = pd.DataFrame(data)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# === ページ2: 分析 & タイムライン ===
+elif selected == t['nav'][1]: # Analysis
+    df = pd.DataFrame(sheet.get_all_records())
     
     if not df.empty:
-        # データ整理
-        df = df.rename(columns={
-            '日付': 'Date', 'Date': 'Date',
-            '身長': 'Height', 'Height': 'Height',
-            '体重': 'Weight', 'Weight': 'Weight',
-            '日記': 'Diary', 'Diary': 'Diary',
-            'AIコメント': 'AI', 'AI Comment': 'AI',
-            '画像': 'Image', 'Image': 'Image',
-            'カテゴリ': 'Category', # 新しい列
-            'タイムスタンプ': 'Time' # 新しい列
-        })
-        
-        # 1. グラフ表示 (Growthデータがある場合のみ)
-        growth_df = df[(df['Height'] != "") | (df['Weight'] != "")].copy()
-        if not growth_df.empty:
-            growth_df['Date'] = pd.to_datetime(growth_df['Date'])
-            growth_df['Weight'] = pd.to_numeric(growth_df['Weight'], errors='coerce')
-            
-            st.markdown("### 📈 Growth Chart")
-            fig = px.line(growth_df, x='Date', y='Weight', markers=True, line_shape='spline', color_discrete_sequence=['#F57C00'])
-            fig.update_layout(plot_bgcolor='#FFF8E1', paper_bgcolor='#FFF8E1', margin=dict(l=20, r=20, t=20, b=20))
-            st.plotly_chart(fig, use_container_width=True)
-
-        # 2. タイムライン表示
-        st.markdown("### 📅 Timeline")
-        
-        # 日付で降順ソート
+        # データ前処理
+        df = df.rename(columns={'日付':'Date','身長':'Height','体重':'Weight','日記':'Diary','AIコメント':'AI','画像':'Image','カテゴリ':'Category','タイムスタンプ':'Time'})
         df['Date'] = pd.to_datetime(df['Date'])
-        # 時間があれば結合してソート用にする
-        df['DateTime'] = df.apply(lambda r: pd.to_datetime(f"{r['Date'].date()} {r.get('Time', '00:00:00')}") if 'Time' in r else r['Date'], axis=1)
         
-        current_date = None
+        # グラフ
+        st.caption("Growth Chart")
+        growth_df = df[(df['Category']=='Growth') & (pd.to_numeric(df['Weight'], errors='coerce') > 0)].copy()
+        if not growth_df.empty:
+            fig = px.line(growth_df, x='Date', y='Weight', markers=True, line_shape='spline')
+            fig.update_traces(line_color='#2563EB', line_width=3)
+            fig.update_layout(showlegend=False, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # タイムライン
+        st.caption("Timeline")
+        df['DateTime'] = df.apply(lambda r: pd.to_datetime(f"{r['Date'].date()} {r.get('Time', '00:00:00')}") if 'Time' in r and r['Time'] else r['Date'], axis=1)
         
         for i, row in df.sort_values('DateTime', ascending=False).iterrows():
-            # 日付ヘッダー
-            row_date = row['Date'].strftime('%Y/%m/%d')
-            if current_date != row_date:
-                st.markdown(f"#### 🗓 {row_date}")
-                current_date = row_date
+            cat = row.get('Category', 'Growth')
+            icon = ICONS.get(cat, "📝")
+            diary = row.get('Diary', '')
+            if lang_code == 'en': diary = translate_text(str(diary), 'en')
             
-            # データ準備
-            cat_key = row.get('Category', 'Growth') # 古いデータはGrowth扱い
-            if cat_key == "": cat_key = "Growth"
-            
-            icon = ICONS.get(cat_key, "📝")
-            time_str = str(row.get('Time', ''))[:5] # 秒はカット
-            
-            # コンテンツの作成
-            content_html = ""
-            
-            # 身長体重
-            h = row.get('Height', '')
-            w = row.get('Weight', '')
-            if h or w:
-                content_html += f"<div style='font-weight:bold; color:#E65100;'>{h}cm / {w}kg</div>"
-            
-            # 日記
-            note = row.get('Diary', '')
-            if lang_code == 'en': note = translate_text(str(note), 'en')
-            if note:
-                content_html += f"<div>{note}</div>"
-            
-            # 写真
-            img_url = row.get('Image', '')
-            img_html = ""
-            if img_url and str(img_url).startswith('http'):
-                img_html = f"<br><img src='{img_url}' style='width:100%; border-radius:10px; margin-top:5px;'>"
-            
-            # カード描画
+            # HTMLで直接デザイン
             st.markdown(f"""
-            <div class="timeline-container">
-                <div class="timeline-dot" style="display:flex; justify-content:center; align-items:center; font-size:12px;">{icon}</div>
-                <div class="entry-card">
-                    <div class="time-label">{time_str} - {text['cats'].get(cat_key, cat_key)}</div>
-                    {content_html}
-                    {img_html}
+            <div class="timeline-box">
+                <div class="timeline-icon">{icon}</div>
+                <div style="background: white; padding: 15px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                    <div style="font-size: 12px; color: #94A3B8; font-weight: bold; margin-bottom: 4px;">
+                        {row['Date'].strftime('%m/%d')} {str(row.get('Time',''))[:5]}
+                    </div>
+                    <div style="font-size: 15px; color: #1E293B;">
+                        {diary}
+                    </div>
+                    {(f"<div style='font-weight:bold; color:#2563EB; margin-top:4px;'>{row['Height']}cm / {row['Weight']}kg</div>" if row.get('Weight') else "")}
+                    {(f"<div style='margin-top:8px; font-size:12px; background:#F1F5F9; padding:8px; border-radius:8px;'>🤖 {row['AI']}</div>" if row.get('AI') else "")}
+                    {(f"<img src='{row['Image']}' style='width:100%; border-radius:8px; margin-top:8px;'>" if str(row.get('Image')).startswith('http') else "")}
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            
     else:
-        st.info(text['no_data'])
+        st.info(t['no_data'])
+
+# === ページ3: 設定 ===
+elif selected == t['nav'][2]: # Settings
+    st.markdown(f"<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("Settings")
+    
+    # 言語設定
+    new_lang = st.radio("Language", ["日本語", "English"], horizontal=True)
+    lang_code_new = 'jp' if new_lang == "日本語" else 'en'
+    if lang_code_new != st.session_state['lang']:
+        st.session_state['lang'] = lang_code_new
+        st.rerun()
+
+    st.markdown("---")
+    
+    # 誕生日設定
+    new_bd = st.date_input(t['bd'], birthday)
+    if st.button(t['update']):
+        sheet.update(range_name='G1', values=[[str(new_bd)]])
+        st.success("Updated!")
+        st.rerun()
+        
+    st.markdown("</div>", unsafe_allow_html=True)
