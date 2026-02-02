@@ -209,4 +209,74 @@ if selected == "Record":
                 link = upload_image(img) if img else ""
                 
                 # 保存実行
-                save_entry([str(d_val), h_val or "", w_val or "", note, ai_msg, link, curr,
+                save_entry([str(d_val), h_val or "", w_val or "", note, ai_msg, link, curr, str(t_val)])
+                st.success("Saved!")
+                time.sleep(1) # 少し待ってからリロード
+                st.rerun()
+            except Exception as e:
+                st.error(f"Save Error: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# === ページ2: 分析 ===
+elif selected == "Analysis":
+    # データを整形
+    if not df.empty:
+        # 列名統一（英語・日本語どちらでも動くように）
+        # スプレッドシートの実際の列名に合わせてリネーム
+        cols_map = {'日付':'Date','身長':'Height','体重':'Weight','日記':'Diary','AIコメント':'AI','画像':'Image','カテゴリ':'Category','タイムスタンプ':'Time'}
+        df = df.rename(columns=cols_map)
+        
+        # グラフ (Growthのみ)
+        if 'Category' in df.columns and 'Weight' in df.columns:
+            g_df = df[(df['Category']=='Growth')].copy()
+            g_df['Weight'] = pd.to_numeric(g_df['Weight'], errors='coerce')
+            g_df = g_df.dropna(subset=['Weight'])
+            if not g_df.empty:
+                st.caption("Weight Chart")
+                fig = px.line(g_df, x='Date', y='Weight', markers=True)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # タイムライン
+        st.caption("Recent Activities")
+        # 日付+時間でソートしたいが、簡単のため逆順表示
+        for i, row in df.iloc[::-1].iterrows():
+            cat = row.get('Category', 'Growth')
+            icon = ICONS.get(cat, "📝")
+            # 翻訳
+            diary = str(row.get('Diary', ''))
+            if lang == 'en': diary = translate(diary, 'en')
+            
+            # HTML表示
+            st.markdown(f"""
+            <div class="timeline-box">
+                <div class="timeline-icon">{icon}</div>
+                <div style="background:white; padding:15px; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-size:12px; color:#888; font-weight:bold;">
+                        {row.get('Date')} {str(row.get('Time',''))[:5]}
+                    </div>
+                    <div style="margin-top:5px; color:#333;">{diary}</div>
+                    {f"<div style='color:#2563EB; font-weight:bold; margin-top:5px;'>{row.get('Height')}cm / {row.get('Weight')}kg</div>" if row.get('Weight') else ""}
+                    {f"<div style='background:#F1F5F9; padding:8px; border-radius:8px; margin-top:8px; font-size:12px;'>🤖 {row.get('AI')}</div>" if row.get('AI') else ""}
+                    {f"<img src='{row.get('Image')}' style='width:100%; border-radius:8px; margin-top:8px;'>" if str(row.get('Image')).startswith('http') else ""}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("No data found.")
+
+# === ページ3: 設定 ===
+elif selected == "Settings":
+    st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
+    st.subheader("Settings")
+    
+    if st.radio("Language", ["日本語", "English"]) == "English":
+        st.session_state['lang'] = 'en'
+    else:
+        st.session_state['lang'] = 'jp'
+        
+    st.markdown("---")
+    st.caption("※ API制限を防ぐため、データ更新に時間がかかる場合があります。")
+    if st.button("Reload Data (強制更新)"):
+        fetch_data.clear()
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
