@@ -176,4 +176,40 @@ with tab1:
                 prev_data = all_records[-1] if all_records else None
                 ai_result = analyze_growth(d_val, w_val, h_val, note_val, prev_data, birthday)
                 
-                # スプレ
+                # スプレッドシートへ書き込み
+                sheet.append_row([str(d_val), h_val, w_val, note_val, ai_result, ""])
+                
+                st.success(text['success'])
+                st.info(ai_result)
+                st.balloons()
+                
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+with tab2:
+    if st.button("Reload"):
+        st.rerun()  # ★ここを修正しました！
+        
+    try:
+        sheet = get_sheet()
+        df = pd.DataFrame(sheet.get_all_records())
+        
+        if not df.empty:
+            for i, row in df.iloc[::-1].iterrows():
+                with st.container():
+                    st.markdown("---")
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        st.subheader(f"{row['日付']}")
+                        st.metric("Height", f"{row['身長']} cm")
+                        st.metric("Weight", f"{row['体重']} kg")
+                    with col2:
+                        st.caption(text['diary'])
+                        st.write(f"{row['日記']}")
+                        st.caption(text['ai_result_title'])
+                        st.info(f"{row['AIコメント']}")
+        else:
+            st.info(text['no_data'])
+            
+    except Exception as e:
+        st.write("Setting up...")
