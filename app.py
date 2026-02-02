@@ -11,18 +11,18 @@ import plotly.express as px
 import streamlit_shadcn_ui as ui
 from streamlit_option_menu import option_menu
 import time
-import textwrap
 
 # ==========================================
-# 0. デザイン & CSS設定
+# 0. デザイン & CSS設定 (表示崩れ・位置修正)
 # ==========================================
 st.set_page_config(page_title="Baby Log", layout="centered", initial_sidebar_state="collapsed")
 
 def local_css():
     st.markdown("""
     <style>
+        /* 全体の背景と余白調整（上が切れないように5rem確保） */
         .stApp { background-color: #F8F9FA; font-family: sans-serif; }
-        .block-container { padding-top: 1rem !important; padding-bottom: 5rem !important; }
+        .block-container { padding-top: 4rem !important; padding-bottom: 5rem !important; }
         
         /* カードデザイン */
         .custom-card {
@@ -40,18 +40,17 @@ def local_css():
             text-align: center; font-size: 12px; line-height: 15px;
         }
         
-        /* ボタンデザイン修正 */
+        /* ボタンデザイン */
         div.stButton > button {
             width: 100%; border-radius: 12px; font-weight: bold;
             border: 1px solid #E2E8F0; background-color: white; color: #333;
             transition: all 0.2s;
-            height: auto; min-height: 50px; /* 押しやすくする */
-            white-space: pre-wrap; /* 文字の折り返し許可 */
+            height: auto; min-height: 50px;
+            white-space: pre-wrap;
         }
         div.stButton > button:hover {
             border-color: #3B82F6; color: #3B82F6; background-color: #EFF6FF;
         }
-        /* 選択中のボタン強調 */
         div.stButton > button:focus:not(:active) {
             border-color: #3B82F6; color: #3B82F6;
         }
@@ -84,7 +83,7 @@ def save_entry(row_data):
     client = get_connection()
     sheet = client.open("すくすくログ").sheet1
     sheet.append_row(row_data)
-    fetch_data.clear()
+    fetch_data.clear() # キャッシュをクリアして即反映
 
 def upload_image(image_file):
     try:
@@ -119,7 +118,6 @@ KNOWLEDGE = {
 # 3. アプリ本体
 # ==========================================
 if 'lang' not in st.session_state: st.session_state['lang'] = 'jp'
-# カテゴリ初期化
 if 'cat' not in st.session_state: st.session_state['cat'] = "Growth"
 
 lang = st.session_state['lang']
@@ -129,7 +127,7 @@ cats = CATS_JP if lang == 'jp' else CATS_EN
 records = fetch_data()
 df = pd.DataFrame(records)
 
-# 誕生日処理
+# 誕生日
 try:
     birthday = datetime.date(2024, 1, 1)
 except:
@@ -139,7 +137,7 @@ today = datetime.date.today()
 age = relativedelta(today, birthday)
 months_old = age.years * 12 + age.months
 
-# --- ヘッダー ---
+# --- ヘッダー (metric_card) ---
 cols = st.columns(3)
 with cols[0]: ui.metric_card(title="Age", content=f"{months_old}m", description=f"{age.days}d", key="c1")
 with cols[1]: ui.metric_card(title="Days", content=f"{(today-birthday).days}", description="Total", key="c2")
@@ -164,11 +162,11 @@ selected = option_menu(
 if selected == "Record":
     st.markdown("<div class='custom-card'>", unsafe_allow_html=True)
     
-    # ★修正ポイント：ボタンの状態を確実に更新する関数
+    # カテゴリ切り替え関数
     def change_cat(new_cat):
         st.session_state['cat'] = new_cat
 
-    # カテゴリボタン一覧
+    # ボタン表示
     keys = list(cats.keys())
     for r in range(2):
         cols = st.columns(4)
@@ -177,16 +175,12 @@ if selected == "Record":
             if idx < len(keys):
                 k = keys[idx]
                 label = f"{ICONS[k]}\n{cats[k]}"
-                
-                # 選択されているボタンはラベルを変える（視覚的なフィードバック）
                 if st.session_state['cat'] == k:
                     label = f"✅\n{cats[k]}"
-                    
-                # on_clickを使って確実に切り替える
+                # on_clickで確実に切り替え
                 cols[c].button(label, key=f"btn_{k}", on_click=change_cat, args=(k,))
 
     curr = st.session_state['cat']
-    # 選択中のカテゴリをテキストでも表示
     st.markdown(f"<div style='text-align:center; margin:10px 0; font-weight:bold; color:#2563EB;'>{ICONS[curr]} {cats[curr]}</div>", unsafe_allow_html=True)
 
     with st.form("entry", clear_on_submit=True):
@@ -195,7 +189,6 @@ if selected == "Record":
         t_val = c2.time_input("Time", datetime.datetime.now())
 
         h_val, w_val = 0.0, 0.0
-        # 成長記録のときだけ身長・体重入力
         if curr == "Growth":
             c1, c2 = st.columns(2)
             h_val = c1.number_input("Height cm", 0.0, format="%.1f")
@@ -224,7 +217,7 @@ if selected == "Record":
 # === ページ2: 分析 ===
 elif selected == "Analysis":
     if not df.empty:
-        # 列名統一
+        # 列名マッピング
         cols_map = {'日付':'Date','身長':'Height','体重':'Weight','日記':'Diary','AIコメント':'AI','画像':'Image','カテゴリ':'Category','タイムスタンプ':'Time'}
         df = df.rename(columns=cols_map)
         
@@ -238,7 +231,7 @@ elif selected == "Analysis":
                 fig = px.line(g_df, x='Date', y='Weight', markers=True)
                 st.plotly_chart(fig, use_container_width=True)
 
-        # タイムライン
+        # タイムライン (HTML崩れ修正版: インデントを排除)
         st.caption("Recent Activities")
         for i, row in df.iloc[::-1].iterrows():
             cat = row.get('Category', 'Growth')
@@ -250,21 +243,22 @@ elif selected == "Analysis":
                 diary = translate(diary, 'en')
                 ai_comment = translate(ai_comment, 'en')
 
-            # デザイン崩れ防止
-            card_html = textwrap.dedent(f"""
-            <div class="timeline-box">
-                <div class="timeline-icon">{icon}</div>
-                <div style="background:white; padding:15px; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-                    <div style="font-size:12px; color:#888; font-weight:bold;">
-                        {row.get('Date')} {str(row.get('Time',''))[:5]}
-                    </div>
-                    <div style="margin-top:5px; color:#333;">{diary}</div>
-                    {(f"<div style='color:#2563EB; font-weight:bold; margin-top:5px;'>{row.get('Height')}cm / {row.get('Weight')}kg</div>" if row.get('Weight') else "")}
-                    {(f"<div style='background:#F1F5F9; padding:8px; border-radius:8px; margin-top:8px; font-size:12px;'>🤖 {ai_comment}</div>" if ai_comment else "")}
-                    {(f"<img src='{row.get('Image')}' style='width:100%; border-radius:8px; margin-top:8px;'>" if str(row.get('Image')).startswith('http') else "")}
-                </div>
-            </div>
-            """)
+            # HTML生成 (インデントなしで記述してバグ回避)
+            img_tag = ""
+            if str(row.get('Image')).startswith('http'):
+                img_tag = f"<img src='{row.get('Image')}' style='width:100%; border-radius:8px; margin-top:8px;'>"
+            
+            hw_div = ""
+            if row.get('Weight'):
+                hw_div = f"<div style='color:#2563EB; font-weight:bold; margin-top:5px;'>{row.get('Height')}cm / {row.get('Weight')}kg</div>"
+            
+            ai_div = ""
+            if ai_comment:
+                ai_div = f"<div style='background:#F1F5F9; padding:8px; border-radius:8px; margin-top:8px; font-size:12px;'>🤖 {ai_comment}</div>"
+
+            # 1行の文字列として生成
+            card_html = f"""<div class="timeline-box"><div class="timeline-icon">{icon}</div><div style="background:white; padding:15px; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,0.1);"><div style="font-size:12px; color:#888; font-weight:bold;">{row.get('Date')} {str(row.get('Time',''))[:5]}</div><div style="margin-top:5px; color:#333;">{diary}</div>{hw_div}{ai_div}{img_tag}</div></div>"""
+            
             st.markdown(card_html, unsafe_allow_html=True)
     else:
         st.info("No data found.")
