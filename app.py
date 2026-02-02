@@ -8,7 +8,6 @@ from dateutil.relativedelta import relativedelta
 # ==========================================
 # 1. 知識データベース (一般教養・アドバイス)
 # ==========================================
-# AIが参照する「月齢ごとの一般的な成長目安とアドバイス」です
 KNOWLEDGE_BASE = {
     'jp': {
         0: "【生後0ヶ月】睡眠リズムが未完成な時期です。1日あたり25〜30gの体重増加が目安です。授乳やミルクの間隔が短く大変な時期ですが、ママ・パパも休めるときに休んでくださいね。",
@@ -18,7 +17,6 @@ KNOWLEDGE_BASE = {
         4: "【生後4ヶ月】首がしっかりしてきて、縦抱きが安定します。昼夜の区別がつき始めます。寝返りの練習を始める子もいるかもしれません。",
         5: "【生後5ヶ月】離乳食の開始時期（ゴックン期）の目安です。支えてあげると座れるようになることも。下の歯が生え始める子もいます。",
         6: "【生後6ヶ月】お座りが安定してくる時期です。免疫が切れ始め、風邪を引きやすくなるので体調変化に注意しましょう。",
-        # ...必要に応じて増やせます
         'default': "すくすくと成長していますね！個性を大切に見守りましょう。"
     },
     'en': {
@@ -77,9 +75,7 @@ lang_mode = st.sidebar.radio("Language", ["日本語", "English"])
 lang_code = 'jp' if lang_mode == "日本語" else 'en'
 text = UI_TEXT[lang_code]
 
-# --- 誕生日の設定（月齢計算に必須） ---
-# ※一度入力したら覚えておくためにSessionStateを使いますが、
-# 本格的にはスプレッドシートに保存するか、ここで毎回入力します。
+# --- 誕生日の設定 ---
 birthday = st.sidebar.date_input(text['birthday_label'], datetime.date(2024, 1, 1))
 
 # ==========================================
@@ -92,9 +88,6 @@ def get_sheet():
     return client.open("すくすくログ").sheet1
 
 def analyze_growth(current_date, weight, height, diary_text, prev_data, birthday):
-    """
-    データと一般知識を組み合わせてコメントを生成する関数
-    """
     # 月齢計算
     age = relativedelta(current_date, birthday)
     months_old = age.years * 12 + age.months
@@ -105,7 +98,12 @@ def analyze_growth(current_date, weight, height, diary_text, prev_data, birthday
     # データ分析
     analysis_msg = ""
     if prev_data:
-        prev_w = float(prev_data.get('体重') or prev_data.get('Weight') or 0)
+        # 数値変換時のエラー防止
+        try:
+            prev_w = float(str(prev_data.get('体重') or prev_data.get('Weight') or 0).replace(',',''))
+        except:
+            prev_w = 0.0
+
         diff = weight - prev_w
         
         if lang_code == 'jp':
@@ -165,7 +163,7 @@ with tab1:
     with st.form("entry_form"):
         d_val = st.date_input(text['date'], datetime.date.today())
         h_val = st.number_input(text['height'], min_value=0.0, format="%.1f")
-        w_val = st.number_input(text['weight'], min_value=0.0, format="%.3f") # 細かく3桁まで
+        w_val = st.number_input(text['weight'], min_value=0.0, format="%.3f")
         note_val = st.text_area(text['diary'])
         
         submitted = st.form_submit_button(text['submit'])
@@ -175,49 +173,7 @@ with tab1:
                 sheet = get_sheet()
                 all_records = sheet.get_all_records()
                 
-                # 直近データ取得
                 prev_data = all_records[-1] if all_records else None
-                
-                # ★ここでAI分析を実行
                 ai_result = analyze_growth(d_val, w_val, h_val, note_val, prev_data, birthday)
                 
-                # 保存 (画像は今回は空欄)
-                # 日本語モードでも英語モードでも、スプレッドシートには日本語ヘッダーの列に書き込みます
-                sheet.append_row([str(d_val), h_val, w_val, note_val, ai_result, ""])
-                
-                st.success(text['success'])
-                st.info(ai_result) # その場で分析結果を表示
-                
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-with tab2:
-    if st.button("Reload"):
-        st.experimental_rerun()
-        
-    try:
-        sheet = get_sheet()
-        df = pd.DataFrame(sheet.get_all_records())
-        
-        if not df.empty:
-            # 最新順に並び替え
-            for i, row in df.iloc[::-1].iterrows():
-                # カード形式で表示
-                with st.container():
-                    st.markdown("---")
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        st.subheader(f"{row['日付']}")
-                        st.metric("Height", f"{row['身長']} cm")
-                        st.metric("Weight", f"{row['体重']} kg")
-                    with col2:
-                        st.caption(text['diary'])
-                        st.write(f"{row['日記']}")
-                        st.caption(text['ai_result_title'])
-                        # AIコメントを目立たせる
-                        st.info(f"{row['AIコメント']}")
-        else:
-            st.info(text['no_data'])
-            
-    except Exception as e:
-        st.write("Setting up...")
+                # スプレ
